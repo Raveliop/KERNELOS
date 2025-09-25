@@ -1,0 +1,12 @@
+[Compositing]
+OpenGLIsUnsafe=false
+Enabled=true
+
+[Plugins]
+blurEnabled=true
+
+[Effect-kwin4_effect_blur]
+BlurStrength=10
+
+[Wayland]
+InputMethod=

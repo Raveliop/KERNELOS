@@ -1,0 +1,13 @@
+[General]
+ColorScheme=BreezeLight
+Name=KernelOS Light
+font=Inter,10,-1,5,50,0,0,0,0,0
+
+[Icons]
+Theme=Papirus-Light
+
+[KDE]
+widgetStyle=Breeze
+
+[WM]
+activeFont=Inter,10,-1,5,50,0,0,0,0,0
