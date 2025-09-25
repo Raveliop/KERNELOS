@@ -1,0 +1,21 @@
+[Desktop Entry]
+Name=KERNELOS
+Type=Service
+X-KDE-PluginInfo-Author=KERNELOS
+X-KDE-PluginInfo-Email=
+X-KDE-PluginInfo-Name=kernelos
+X-KDE-PluginInfo-Version=1.0
+X-KDE-PluginInfo-Website=
+X-KDE-PluginInfo-License=GPL-3.0-or-later
+X-KDE-PluginInfo-EnabledByDefault=true
+
+[sddm-theme]
+Name=KERNELOS
+Description=Thème SDDM pastel clair pour KERNELOS
+Type=sddm-theme
+Version=1.0
+MainScript=Main.qml
+ConfigFile=theme.conf
+Theme-API=2.0
+Author=KERNELOS
+License=GPL-3.0-or-later

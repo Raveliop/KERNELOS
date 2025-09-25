@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+MARKER="$HOME/.config/.kernelos-first-login-done"
+if [[ -f "$MARKER" ]]; then
+  exit 0
+fi
+
+# Ensure Inter and Papirus are applied
+kwriteconfig6 --file kdeglobals --group General --key ColorScheme BreezeLight || true
+kwriteconfig6 --file kdeglobals --group Icons --key Theme Papirus-Light || true
+kwriteconfig6 --file kdeglobals --group KDE --key widgetStyle Breeze || true
+
+# Wallpaper
+if command -v plasma-apply-wallpaperimage >/dev/null 2>&1; then
+  plasma-apply-wallpaperimage /usr/share/backgrounds/kernelos/default.png || true
+fi
+
+# Apply panel/layout from /etc/xdg if user hasn't customized
+USER_APPLETSRC="$HOME/.config/plasma-org.kde.plasma.desktop-appletsrc"
+if [[ ! -f "$USER_APPLETSRC" ]]; then
+  install -Dm644 /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc "$USER_APPLETSRC"
+fi
+
+# GTK consistency (fallback for apps not respecting KDE)
+mkdir -p "$HOME/.config/gtk-3.0"
+install -Dm644 /etc/xdg/gtk-3.0/settings.ini "$HOME/.config/gtk-3.0/settings.ini"
+
+# Wayland session is already default via SDDM config
+
+mkdir -p "$(dirname "$MARKER")"
+echo "1" > "$MARKER"
+
+exit 0

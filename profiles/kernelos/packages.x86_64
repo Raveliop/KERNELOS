@@ -1,0 +1,36 @@
+# Paquets KERNELOS - session KDE Plasma 6 (Wayland) et apps par défaut
+# Base graphique KDE Plasma 6
+plasma
+plasma-wayland-session
+kdeplasma-addons
+kde-gtk-config
+sddm
+sddm-kcm
+powerdevil
+kde-settings
+
+# Découverte logiciels et flatpak
+plasma-discover
+packagekit-qt6
+flatpak
+
+# Icônes, polices et thèmes
+papirus-icon-theme
+ttf-inter
+kvantum-qt5
+kvantum-qt6
+
+# Applications par défaut
+firefox
+konsole
+dolphin
+spectacle
+partitionmanager
+
+# Intégration portail desktop
+xdg-desktop-portal
+xdg-desktop-portal-kde
+
+# Outils utiles
+kate
+ark

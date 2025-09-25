@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=KERNELOS First Login
+Exec=/usr/local/bin/kernelos-first-login
+OnlyShowIn=KDE;
+X-KDE-autostart-phase=1

@@ -1,0 +1,6 @@
+[Greeter]
+Theme=org.kde.breezelight.desktop
+Wallpaper=/usr/share/backgrounds/kernelos/default.png
+
+[Daemon]
+Autolock=false
