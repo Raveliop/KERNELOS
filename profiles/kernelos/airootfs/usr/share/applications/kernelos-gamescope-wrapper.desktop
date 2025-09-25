@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KernelOS Gamescope Wrapper
+Comment=Lancer un jeu avec Gamemode, Gamescope et MangoHud
+Exec=kernelos-gamemode-wrapper %F
+Terminal=false
+Categories=Game;Utility;
+MimeType=application/x-executable;
+NoDisplay=false
