@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KernelOS Créer un préfixe Wine
+Comment=Créer un préfixe Wine optimisé (DXVK/VKD3D, polices)
+Exec=kernelos-bottle-create --help
+Icon=wine
+Terminal=true
+Categories=Utility;System;

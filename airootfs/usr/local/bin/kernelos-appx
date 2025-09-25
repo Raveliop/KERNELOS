@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+APP_BASE="$HOME/.local/share/kernelos-appx"
+APPS_DIR="$APP_BASE/apps"
+REG_DIR="$APP_BASE/register"
+BIN_DIR="$HOME/.local/bin"
+DESKTOP_DIR="$HOME/.local/share/applications"
+ICON_DIR="$HOME/.local/share/icons/hicolor/256x256/apps"
+PREFIX_BASE="$HOME/.local/share/kernelos/wineprefixes"
+
+mkdir -p "$APPS_DIR" "$REG_DIR" "$BIN_DIR" "$DESKTOP_DIR" "$ICON_DIR" "$PREFIX_BASE"
+
+usage() {
+  cat <<EOF
+kernelos-appx: gestion .appx/.msix (best-effort)
+
+Commandes:
+  install <fichier.appx|msix|bundle>   Extrait et prépare l'application
+  register <dossier> [--name NOM]      Enregistre un dossier déjà extrait
+  unregister <nom> [--purge]           Supprime raccourcis et enregistrement (et données avec --purge)
+  list                                 Liste les applications enregistrées
+  help                                 Affiche cette aide
+EOF
+}
+
+die() { echo "$*" >&2; exit 1; }
+
+need() { command -v "$1" >/dev/null 2>&1 || die "$1 manquant"; }
+
+choose_inner_pkg() {
+  local bundle="$1"
+  local list
+  list=$(7z l -ba "$bundle" | awk '{print $6}' | grep -Ei '\.(appx|msix)$' || true)
+  local pick=""
+  pick=$(echo "$list" | grep -Ei 'x64|amd64' | head -n1 || true)
+  if [[ -z "$pick" ]]; then pick=$(echo "$list" | grep -Ei 'x86' | head -n1 || true); fi
+  if [[ -z "$pick" ]]; then pick=$(echo "$list" | head -n1 || true); fi
+  [[ -n "$pick" ]] || die "Aucun paquet interne trouvé"
+  echo "$pick"
+}
+
+extract_pkg() {
+  local src="$1" dest="$2"
+  mkdir -p "$dest"
+  local ext="${src##*.}"
+  shopt -s nocasematch
+  if [[ "$ext" =~ appxbundle|msixbundle ]]; then
+    local tmpd
+    tmpd="$(mktemp -d)"
+    7z x -y -o"$tmpd" "$src" >/dev/null
+    local inner
+    inner="$(choose_inner_pkg "$src")"
+    7z x -y -o"$dest" "$tmpd/$inner" >/dev/null
+    rm -rf "$tmpd"
+  else
+    7z x -y -o"$dest" "$src" >/dev/null
+  fi
+  shopt -u nocasematch
+}
+
+ps_parse_manifest() {
+  local manifest="$1"
+  if ! command -v pwsh >/dev/null 2>&1; then return 1; fi
+  pwsh -NoLogo -NoProfile -Command "
+    try {
+      [xml]
+      $xml = Get-Content -Encoding UTF8 -Path '$manifest'
+      $pkg = $xml.Package
+      $disp = $pkg.Properties.DisplayName
+      if (-not $disp) { $disp = [string]$pkg.Identity.Name }
+      $exe = ($xml.SelectNodes('//@Executable') | Where-Object { $_.Value -match '\\.exe$' } | Select-Object -First 1).Value
+      if (-not $exe) {
+        $fileNode = ($xml.SelectNodes('//File[@Name]') | Where-Object { $_.Name -match '\\.exe$' } | Select-Object -First 1)
+        if ($fileNode) { $exe = $fileNode.Name }
+      }
+      if (-not $exe) { $exe = '' }
+      Write-Output "$disp`n$exe"
+    } catch {
+      Write-Output "`n"
+    }
+  "
+}
+
+find_main_exe() {
+  local root="$1"
+  local manifest
+  manifest="$(find "$root" -maxdepth 2 -type f -iname 'AppxManifest.xml' | head -n1 || true)"
+  local disp="" exeRel=""
+  if [[ -n "$manifest" ]]; then
+    local parsed
+    parsed="$(ps_parse_manifest "$manifest" || true)"
+    if [[ -n "$parsed" ]]; then
+      disp="$(echo "$parsed" | sed -n '1p')"
+      exeRel="$(echo "$parsed" | sed -n '2p')"
+    fi
+  fi
+  if [[ -z "$exeRel" ]]; then
+    exeRel="$(find "$root" -type f -iname '*.exe' | grep -viE '/setup|/installer|/unins|/uninstall' | sort | head -n1 || true)"
+    if [[ -n "$exeRel" ]]; then
+      exeRel="${exeRel#"$root/"}"
+    fi
+  fi
+  echo "$disp""|""$exeRel"
+}
+
+make_prefix() {
+  local name="$1"
+  if command -v kernelos-bottle-create >/dev/null 2>&1; then
+    kernelos-bottle-create --name "$name" >/dev/null || true
+  else
+    local p="$PREFIX_BASE/$name"
+    mkdir -p "$p"; WINEARCH=win64 WINEPREFIX="$p" wineboot -u || true
+  fi
+}
+
+create_launchers() {
+  local name="$1" exe_abs="$2" prefix="$3" icon_png="$4" dispname="$5"
+  mkdir -p "$BIN_DIR" "$DESKTOP_DIR"
+  local run="$BIN_DIR/$name-app"
+  cat > "$run" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export WINEPREFIX="$prefix"
+export WINEESYNC=1
+export WINEFSYNC=1
+exec wine "${exe_abs}" "${@:1}"
+EOF
+  chmod +x "$run"
+  local desktop="$DESKTOP_DIR/kernelos-$name.desktop"
+  cat > "$desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=${dispname}
+Exec=${run}
+Icon=${name}
+Terminal=false
+Categories=Utility;Application;
+StartupNotify=true
+EOF
+  if [[ -f "$icon_png" ]]; then
+    install -Dm644 "$icon_png" "$ICON_DIR/${name}.png"
+  fi
+  echo "$run|$desktop"
+}
+
+register_app() {
+  local name="$1" root="$2" exe_rel="$3" prefix="$4" run="$5" desktop="$6" icon="$7" disp="$8"
+  mkdir -p "$REG_DIR"
+  cat > "$REG_DIR/$name.json" <<EOF
+{
+  "name": "$name",
+  "displayName": "${disp}",
+  "root": "${root}",
+  "exe": "${exe_rel}",
+  "prefix": "${prefix}",
+  "runner": "${run}",
+  "desktop": "${desktop}",
+  "icon": "${icon}"
+}
+EOF
+}
+
+cmd_install() {
+  need 7z
+  local src="$1"; [[ -f "$src" ]] || die "Fichier introuvable: $src"
+  local base
+  base="$(basename "$src")"; base="${base%.*}"
+  local out="$APPS_DIR/$base"
+  if [[ -d "$out" ]]; then
+    echo "Réutilisation du dossier existant: $out"
+  else
+    echo "Extraction vers: $out"
+    extract_pkg "$src" "$out"
+  fi
+  local disp exe
+  IFS='|' read -r disp exe <<<"$(find_main_exe "$out")"
+  if [[ -z "$exe" ]]; then die "Aucun .exe principal détecté"; fi
+  local exe_abs="$out/$exe"
+  local name
+  name="$(echo "${disp:-$base}" | tr '[:space:]/' '-_')"
+  local prefix="$PREFIX_BASE/$name"
+  make_prefix "$name"
+  local icon_png=""
+  local ico
+  ico="$(find "$out" -type f -iname '*.ico' | head -n1 || true)"
+  if [[ -n "$ico" ]] && command -v icotool >/dev/null 2>&1; then
+    local tmpi
+    tmpi="$(mktemp -d)"; icotool -x -o "$tmpi" "$ico" >/dev/null || true
+    icon_png="$(ls -1 "$tmpi"/*.png 2>/dev/null | sort -V | tail -n1 || true)"
+  fi
+  IFS='|' read -r run_path desktop_path <<<"$(create_launchers "$name" "$exe_abs" "$prefix" "${icon_png:-}" "${disp:-$base}")"
+  register_app "$name" "$out" "$exe" "$prefix" "$run_path" "$desktop_path" "${icon_png:-}" "${disp:-$base}"
+  echo "Installé et enregistré: $name"
+}
+
+cmd_register() {
+  local dir="$1"; shift
+  [[ -d "$dir" ]] || die "Dossier introuvable: $dir"
+  local NAME=""
+  local EXE=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --name) NAME="$2"; shift 2;;
+      --exe) EXE="$2"; shift 2;;
+      *) break;;
+    esac
+  done
+  local disp exe
+  if [[ -z "$EXE" ]]; then
+    IFS='|' read -r disp exe <<<"$(find_main_exe "$dir")"
+  else
+    exe="$EXE"; disp=""
+  fi
+  [[ -n "$exe" ]] || die "Impossible de déterminer l'exécutable"
+  local base="$(basename "$dir")"
+  local name="${NAME:-$(echo "${disp:-$base}" | tr '[:space:]/' '-_')}"
+  local prefix="$PREFIX_BASE/$name"
+  make_prefix "$name"
+  local exe_abs="$dir/$exe"
+  local icon_png=""
+  local ico
+  ico="$(find "$dir" -type f -iname '*.ico' | head -n1 || true)"
+  if [[ -n "$ico" ]] && command -v icotool >/dev/null 2>&1; then
+    local tmpi
+    tmpi="$(mktemp -d)"; icotool -x -o "$tmpi" "$ico" >/dev/null || true
+    icon_png="$(ls -1 "$tmpi"/*.png 2>/dev/null | sort -V | tail -n1 || true)"
+  fi
+  IFS='|' read -r run_path desktop_path <<<"$(create_launchers "$name" "$exe_abs" "$prefix" "${icon_png:-}" "${disp:-$name}")"
+  register_app "$name" "$dir" "$exe" "$prefix" "$run_path" "$desktop_path" "${icon_png:-}" "${disp:-$name}"
+  echo "Enregistré: $name"
+}
+
+cmd_unregister() {
+  local name="$1"; shift
+  local PURGE=0
+  if [[ "${1:-}" == "--purge" ]]; then PURGE=1; fi
+  local meta="$REG_DIR/$name.json"
+  [[ -f "$meta" ]] || die "Non enregistré: $name"
+  local root exe prefix run desktop icon
+  root=$(sed -n 's/.*"root": *"\(.*\)".*/\1/p' "$meta")
+  run=$(sed -n 's/.*"runner": *"\(.*\)".*/\1/p' "$meta")
+  desktop=$(sed -n 's/.*"desktop": *"\(.*\)".*/\1/p' "$meta")
+  icon=$(sed -n 's/.*"icon": *"\(.*\)".*/\1/p' "$meta")
+  rm -f "$run" "$desktop" "$ICON_DIR/${name}.png" "$meta"
+  if [[ "$PURGE" == "1" && -n "$root" ]]; then rm -rf "$root"; fi
+  echo "Désenregistré: $name"
+}
+
+cmd_list() {
+  ls -1 "$REG_DIR"/*.json 2>/dev/null | sed 's#.*/##; s/\.json$//' || true
+}
+
+case "${1:-}" in
+  install)
+    [[ $# -ge 2 ]] || { usage; exit 1; }
+    shift; cmd_install "$1";;
+  register)
+    [[ $# -ge 2 ]] || { usage; exit 1; }
+    shift; dir="$1"; shift; cmd_register "$dir" "$@";;
+  unregister)
+    [[ $# -ge 2 ]] || { usage; exit 1; }
+    shift; cmd_unregister "$1" "${2:-}";;
+  list)
+    cmd_list;;
+  help|-h|--help)
+    usage;;
+  *)
+    usage; exit 1;;
+fi

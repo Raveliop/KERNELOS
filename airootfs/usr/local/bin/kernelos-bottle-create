@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  echo "Utilisation: kernelos-bottle-create [--name NOM] [--arch win64|win32] [--locale LOCALE] [--no-dxvk] [--no-vkd3d] [--prefix CHEMIN]"
+  echo "Crée un préfixe Wine optimisé (esync/fsync, DXVK/VKD3D, polices de base)."
+}
+
+NAME="default"
+ARCH="win64"
+LOCALE="${LC_ALL:-${LANG:-fr_FR.UTF-8}}"
+DXVK=1
+VKD3D=1
+PREFIX=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --name)
+      NAME="$2"; shift 2;;
+    --arch)
+      ARCH="$2"; shift 2;;
+    --locale)
+      LOCALE="$2"; shift 2;;
+    --no-dxvk)
+      DXVK=0; shift;;
+    --no-vkd3d)
+      VKD3D=0; shift;;
+    --prefix)
+      PREFIX="$2"; shift 2;;
+    -h|--help)
+      usage; exit 0;;
+    *)
+      echo "Option inconnue: $1" >&2; usage; exit 1;;
+  esac
+done
+
+if [[ -z "$PREFIX" ]]; then
+  PREFIX="$HOME/.local/share/kernelos/wineprefixes/$NAME"
+fi
+
+mkdir -p "$PREFIX"
+
+export WINEARCH="$ARCH"
+export WINEPREFIX="$PREFIX"
+export WINEESYNC=1
+export WINEFSYNC=1
+export LC_ALL="$LOCALE"
+
+if ! command -v wineboot >/dev/null 2>&1; then
+  echo "wine n'est pas installé." >&2
+  exit 1
+fi
+
+wineboot -u || true
+
+if command -v winetricks >/dev/null 2>&1; then
+  winetricks -q corefonts fontsmooth=rgb || true
+  if [[ "$DXVK" == "1" ]]; then
+    winetricks -q dxvk || true
+  fi
+  if [[ "$VKD3D" == "1" ]]; then
+    winetricks -q vkd3d || true
+  fi
+fi
+
+mkdir -p "$HOME/.local/bin"
+RUN_WRAPPER="$HOME/.local/bin/wine-run-$NAME"
+cat > "$RUN_WRAPPER" <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+export WINEPREFIX="$PREFIX"
+export WINEESYNC=1
+export WINEFSYNC=1
+export LC_ALL="$LOCALE"
+exec wine "${1:-winecfg}" "${@:2}"
+EOF
+chmod +x "$RUN_WRAPPER"
+
+echo "Préfixe créé: $PREFIX"
+echo "Lanceur: $RUN_WRAPPER"

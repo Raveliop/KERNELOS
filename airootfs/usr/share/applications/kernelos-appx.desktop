@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=KernelOS AppX/MSIX Installer (CLI)
+Comment=Installer et gérer des paquets .appx/.msix (best-effort)
+Exec=kernelos-appx help
+Icon=system-run
+Terminal=true
+Categories=Utility;System;
