@@ -1,17 +1,39 @@
-name: Build ISO (Secure Boot)
+name: Build ISO (KERNELOS)
 
 on:
   workflow_dispatch:
   push:
-    branches: [ capy/secure-boot-oob-shim-cb1ff4c9 ]
+    branches: [ main ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-iso-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
+  validate:
+    name: Validate repository (fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Basic tree validation
+        run: |
+          echo "Tree snapshot:" && ls -la
+          test -f README.md || (echo "Missing README.md" && exit 1)
+          echo "Validation OK"
+
   build-iso:
+    name: Build ISO artifact
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) }}
     runs-on: ubuntu-latest
     container:
       image: archlinux:latest
-    permissions:
-      contents: write
+      options: --privileged
     env:
       TZ: UTC
     steps:
@@ -31,11 +53,14 @@ jobs:
           echo "${{ secrets.SB_PUBLIC_CERT }}" | base64 -d > keys/secureboot/MOK.crt
           chmod 600 keys/secureboot/MOK.key
 
-      - name: Prepare archiso profile (releng)
+      - name: Prepare archiso profile (releng or project profile)
         run: |
-          cp -r /usr/share/archiso/configs/releng profile
-          # Add linux-zen and secure boot tooling inside the ISO environment
-          echo -e "linux-zen\nsbsigntools\nsbctl\nshim-signed\nmokutil" >> profile/packages.x86_64
+          if [ -d profiles/kernelos ]; then
+            cp -r profiles/kernelos profile
+          else
+            cp -r /usr/share/archiso/configs/releng profile
+            echo -e "linux-zen\nsbsigntools\nsbctl\nshim-signed\nmokutil" >> profile/packages.x86_64
+          fi
 
       - name: Build ISO
         run: |
@@ -44,12 +69,18 @@ jobs:
       - name: Sign ISO and inject shim/MOK
         run: |
           ISO=$(ls -1 dist/*.iso | head -n1)
-          bash scripts/secureboot/sign-iso.sh "$ISO" out_signed
+          if [ -f scripts/secureboot/sign-iso.sh ]; then
+            bash scripts/secureboot/sign-iso.sh "$ISO" out_signed
+          else
+            mkdir -p out_signed
+            cp "$ISO" out_signed/
+            sha256sum out_signed/*.iso > out_signed/SHA256SUMS
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kernelos-secureboot-iso
+          name: kernelos-iso
           path: |
             out_signed/*.iso
             out_signed/SHA256SUMS
@@ -58,4 +89,4 @@ jobs:
 
       - name: Summary
         run: |
-          echo "ISO built and signed. Artifacts uploaded."
+          echo "ISO build finished. Artifacts uploaded (if present)."
