@@ -1,0 +1,61 @@
+name: Build ISO (Secure Boot)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ capy/secure-boot-oob-shim-cb1ff4c9 ]
+
+jobs:
+  build-iso:
+    runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
+    permissions:
+      contents: write
+    env:
+      TZ: UTC
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install build deps
+        run: |
+          pacman -Syy --noconfirm
+          pacman -S --needed --noconfirm archiso sbsigntools sbctl shim-signed mokutil mtools xorriso dosfstools squashfs-tools libarchive git openssl
+
+      - name: Use project-provided Secure Boot keys (if any)
+        if: ${{ secrets.SB_PRIVATE_KEY != '' && secrets.SB_PUBLIC_CERT != '' }}
+        run: |
+          mkdir -p keys/secureboot
+          echo "${{ secrets.SB_PRIVATE_KEY }}" | base64 -d > keys/secureboot/MOK.key
+          echo "${{ secrets.SB_PUBLIC_CERT }}" | base64 -d > keys/secureboot/MOK.crt
+          chmod 600 keys/secureboot/MOK.key
+
+      - name: Prepare archiso profile (releng)
+        run: |
+          cp -r /usr/share/archiso/configs/releng profile
+          # Add linux-zen and secure boot tooling inside the ISO environment
+          echo -e "linux-zen\nsbsigntools\nsbctl\nshim-signed\nmokutil" >> profile/packages.x86_64
+
+      - name: Build ISO
+        run: |
+          mkarchiso -v -w out -o dist profile
+
+      - name: Sign ISO and inject shim/MOK
+        run: |
+          ISO=$(ls -1 dist/*.iso | head -n1)
+          bash scripts/secureboot/sign-iso.sh "$ISO" out_signed
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kernelos-secureboot-iso
+          path: |
+            out_signed/*.iso
+            out_signed/SHA256SUMS
+            out_signed/KERNELOS-MOK.cer
+            out_signed/INSTRUCTIONS-SECURE-BOOT-FR.txt
+
+      - name: Summary
+        run: |
+          echo "ISO built and signed. Artifacts uploaded."
