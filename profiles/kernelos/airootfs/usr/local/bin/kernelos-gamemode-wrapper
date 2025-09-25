@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+set -euo pipefail
+if [ $# -lt 1 ]; then
+  echo "Usage: kernelos-gamemode-wrapper <commande du jeu> [args]"
+  exit 1
+fi
+MANGOHUD=${MANGOHUD:-1}
+W=${GAMESCOPE_W:-1920}
+H=${GAMESCOPE_H:-1080}
+RR=${GAMESCOPE_RR:-60}
+FPS=${GAMESCOPE_FPS:-60}
+ADD_OPTS=${GAMESCOPE_OPTS:-"-f"}
+has_nvidia() { command -v nvidia-smi >/dev/null 2>&1; }
+if command -v gamescope >/dev/null 2>&1; then
+  if has_nvidia && command -v prime-run >/dev/null 2>&1; then
+    exec env MANGOHUD="$MANGOHUD" gamemoderun prime-run gamescope $ADD_OPTS -w "$W" -h "$H" -r "$RR" -F "$FPS" -- "$@"
+  else
+    exec env MANGOHUD="$MANGOHUD" gamemoderun gamescope $ADD_OPTS -w "$W" -h "$H" -r "$RR" -F "$FPS" -- "$@"
+  fi
+else
+  exec env MANGOHUD="$MANGOHUD" gamemoderun "$@"
+fi

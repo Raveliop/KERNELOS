@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+set -euo pipefail
+CONFIG_DIR=/etc/profile.d
+ENV_FILE="$CONFIG_DIR/kernelos-gpu.sh"
+detect_gpu() { lspci -nnk 2>/dev/null | grep -Ei "VGA|3D|Display" | tr '[:upper:]' '[:lower:]' || true; }
+has_nvidia() { command -v nvidia-smi >/dev/null 2>&1 || lsmod 2>/dev/null | grep -q "^nvidia" || detect_gpu | grep -q "nvidia"; }
+has_amd() { detect_gpu | grep -Eq "amd|ati|amdgpu|radv"; }
+create_env() {
+  mkdir -p "$CONFIG_DIR"
+  {
+    echo "#!/bin/sh"
+    if has_amd; then
+      echo "export RADV_PERFTEST=aco"
+    fi
+    echo "export __GL_THREADED_OPTIMIZATIONS=1"
+  } | tee "$ENV_FILE" >/dev/null
+  chmod 644 "$ENV_FILE"
+}
+if has_nvidia; then
+  mkdir -p /etc/modprobe.d
+  printf '%s\n' 'options nvidia_drm modeset=1 fbdev=1' > /etc/modprobe.d/nvidia.conf
+fi
+create_env
+printf '%s\n' "Configuration GPU écrite dans $ENV_FILE"
